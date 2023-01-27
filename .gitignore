@@ -1,4 +1,4 @@
 logs/*
 grb/__pycache__/
 *.csv
-*.xslx
+*.xlsx
