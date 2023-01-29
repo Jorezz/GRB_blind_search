@@ -3,7 +3,7 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import datetime
 import numpy as np
-from .config import ACS_DATA_PATH, LIGHT_CURVE_SAVE, GBM_DETECTOR_CODES
+from .config import ACS_DATA_PATH, LIGHT_CURVE_SAVE, GBM_DETECTOR_CODES, logging
 from astropy.io import fits
 import matplotlib.pyplot as plt
 from .time import get_ijd_from_utc, get_ijd_from_Fermi_seconds
@@ -14,22 +14,27 @@ class LightCurve():
     '''
     Base class for light curves from different sources
     '''
-    def __init__(self, event_time=None,duration=None):
+    def __init__(self, event_time: str = None,duration: float = None, data: np.array = None):
         '''
         Args:
-            event_time (str): time of the event in format 'YYYY-MM-DD HH:MM:SS'
-            duration (int): duration in seconds
+            event_time (str, optional): time of the event in format 'YYYY-MM-DD HH:MM:SS'
+            duration (int, optional): duration in seconds
+            data (np.array, optional): data of the light curve
         '''
         self.event_time = event_time
         self.duration = duration
 
-        self.times = None
-        self.times_err = None
-        self.signal = None
-        self.signal_err = None
+        if data is not None:
+            self.__get_light_curve_from_data(data)
+        else:
+            self.times = None
+            self.times_err = None
+            self.signal = None
+            self.signal_err = None
+            self.resolution = None
 
-        self.original_times,self.original_signal = None, None
-        self.original_resolution = None
+            self.original_times,self.original_signal = None, None
+            self.original_resolution = None
 
     def __repr__(self) -> str:
         return f'{self.__class__.__name__}(event_time={self.event_time}, duration={self.duration}, original resolution={self.original_resolution})'
@@ -62,7 +67,7 @@ class LightCurve():
             plt.yscale('log')
 
     @staticmethod
-    def __rebin_data(times,signal,resolution,bin_duration: float = None, binning: np.array = None):
+    def _rebin_data(times,signal,resolution,bin_duration: float = None, binning: np.array = None):
 
         '''
         Auxiliary method for rebining the light curve
@@ -80,11 +85,12 @@ class LightCurve():
 
         return bined_times,bined_times_err,bined_signal,bined_signal_err,binning
 
-    def rebin(self,bin_duration: float = None):
+    def rebin(self,bin_duration: float = None, reset: bool = True):
         '''
         Rebin light curve from original time resolution
         Args:
             bin_duration (float): new bin duration in seconds, if None, return to original resolution
+            reset (bool, optional): if True, rebin the light curve using original resolution, result is same as self.rebin().rebin(bin_duration)
         Returns:
             self
         '''
@@ -93,16 +99,20 @@ class LightCurve():
             self.times_err = np.full(self.original_times.shape[0], self.original_resolution)
             self.signal = self.original_signal
             self.signal_err = np.sqrt(self.original_signal)
+            self.resolution = self.original_resolution
 
             return self
 
-        
-        bined_times, bined_times_err, bined_signal, bined_signal_err, _ = self.__rebin_data(self.original_times, self.original_signal, self.original_resolution, bin_duration)
+        if not reset:
+            bined_times, bined_times_err, bined_signal, bined_signal_err, _ = self._rebin_data(self.original_times, self.original_signal, self.original_resolution, bin_duration)
+        else:
+            bined_times, bined_times_err, bined_signal, bined_signal_err, _ = self._rebin_data(self.times, self.signal, self.resolution, bin_duration)
         
         self.signal = bined_signal
         self.signal_err = bined_signal_err
         self.times = bined_times
         self.times_err = bined_times_err
+        self.resolution = bin_duration
 
         return self
 
@@ -144,8 +154,55 @@ class LightCurve():
         Returns:
             self
         '''
-        self.signal -= np.polyval(polynom_params,self.times)
+        self.signal = self.signal - np.polyval(polynom_params,self.times)
         return self
+
+    def filter_peaks(self,peak_threshold: float = -3):
+        '''
+        Filter light curve to remove peaks
+        Args:
+            peak_threshold (float, optional): threshold for peak removal, if negative - remove points bellow median, if positive - remove points above median
+        Returns:
+            self
+        '''
+        median_flux = np.median(self.signal)
+
+        if peak_threshold < 0:
+            indexes_to_remove = (self.signal - median_flux)/self.signal_err < peak_threshold
+        else:
+            indexes_to_remove = (self.signal - median_flux)/self.signal_err >= peak_threshold
+
+        self.signal = np.delete(self.signal, indexes_to_remove)
+        self.signal_err = np.delete(self.signal_err, indexes_to_remove)
+        self.times = np.delete(self.times, indexes_to_remove)
+        self.times_err = np.delete(self.times_err, indexes_to_remove)
+        
+        return self
+
+    def __get_light_curve_from_data(self,data):
+        '''
+        Appends data from data to light curve object
+        Args:
+            data (np.array): data array with shape (n_samples,n_channels), where n_channels is 2 or 4
+        '''
+        if data.shape[1] == 2:
+            self.original_times = data[:,0]
+            self.original_signal = data[:,1]
+            
+            self.times = self.original_times
+            self.original_resolution = round(np.mean(self.times[1:] - self.times[:-1]),3) # determine size of time window
+            self.times_err = np.full(self.original_times.shape[0], self.original_resolution)
+            self.signal = self.original_signal
+            self.signal_err = np.sqrt(self.original_signal)
+        elif data.shape[1] == 4:
+            self.original_times = data[:,0]
+            self.original_signal = data[:,2]
+            
+            self.times = self.original_times
+            self.original_resolution = round(np.mean(self.times[1:] - self.times[:-1]),3) # determine size of time window
+            self.times_err = data[:,1]
+            self.signal = self.original_signal
+            self.signal_err = data[:,3]
 
     @classmethod
     def load(cls,filename: str):
@@ -173,7 +230,7 @@ class SPI_ACS_LightCurve(LightCurve):
     '''
     Class for light curves from SPI-ACS/INTEGRAL
     '''
-    def __init__(self,event_time: str,duration: int,loading_method: str='local',scale: str='utc',*args,**kwargs):
+    def __init__(self,event_time: str,duration: int, loading_method: str='local',scale: str='utc',*args,**kwargs):
         '''
         Args:
             event_time (str): date and time of event
@@ -183,19 +240,21 @@ class SPI_ACS_LightCurve(LightCurve):
         '''
         super().__init__(event_time,duration,*args,**kwargs)
 
-        self.__acs_scw_df = None
-        if loading_method == 'local':
-            self.original_times,self.original_signal = self.__get_light_curve_from_file(scale = scale)
-        elif loading_method =='web':
-            self.original_times,self.original_signal = self.__get_light_curve_from_web(scale = scale)
-        else:
-            raise NotImplementedError(f'Loading method {loading_method} not supported')
+        if self.original_times == None:
+            if loading_method == 'local':
+                self.original_times,self.original_signal = self.__get_light_curve_from_file(scale = scale)
+            elif loading_method =='web':
+                self.original_times,self.original_signal = self.__get_light_curve_from_web(scale = scale)
+            else:
+                raise NotImplementedError(f'Loading method {loading_method} not supported')
 
         self.times = self.original_times
         self.original_resolution = round(np.mean(self.times[1:] - self.times[:-1]),3) # determine size of time window
         self.times_err = np.full(self.original_times.shape[0], self.original_resolution)
         self.signal = self.original_signal
         self.signal_err = np.sqrt(self.original_signal)
+        self.resolution = self.original_resolution
+        
 
     def __get_light_curve_from_file(self,scale = 'utc'):
         acs_scw_df= []
@@ -283,6 +342,7 @@ class GBM_LightCurve(LightCurve):
                  loading_method: str='web', 
                  scale = 'utc',
                  apply_redshift: bool = True,
+                 save_photons: bool = False,
                  *args,**kwargs):
         '''
         Args:
@@ -291,23 +351,29 @@ class GBM_LightCurve(LightCurve):
             redshift (float, optional): Cosmological redshift of GRB, if known
             original_resolution (float, optional): Starting binning of GRB, default to 0.01 seconds
             loading_method (str, optional): Method of obtaining the light curve, can be 'web' or 'local'
+            scale (str, optional): Scale of the light curve, can be 'utc' or 'ijd', default to 'utc'
+            apply_redshift (bool, optional): Apply redshift to the light curve, default to True
+            save_photons (bool, optional): Save the photons data from detectors, carefull, it can take a lot of memory, default to False
         '''
         super().__init__(code,*args,**kwargs)
         self.code = code
         self.redshift = redshift if redshift else 0
-
-        if loading_method == 'web':
-            self.original_times,self.original_signal = self.__get_light_curve_from_web(detector_mask, apply_redshift,scale = scale)
-        else:
-            NotImplementedError(f'Loading method {loading_method} not implemented')
-
-        self.times = self.original_times
+        self.photon_data = {}
         self.original_resolution = original_resolution if original_resolution else 0.01
-        self.times_err = np.full(self.original_times.shape[0], self.original_resolution)
-        self.signal = self.original_signal
-        self.signal_err = np.sqrt(self.original_signal)
+        self.resolution = self.original_resolution
+
+        if self.original_times is None:
+            if loading_method == 'web':
+                self.original_times,self.original_signal = self.__get_light_curve_from_web(detector_mask, apply_redshift, save_photons, scale = scale)
+            else:
+                NotImplementedError(f'Loading method {loading_method} not implemented')
+
+            self.times = self.original_times
+            self.times_err = np.full(self.original_times.shape[0], self.original_resolution)
+            self.signal = self.original_signal
+            self.signal_err = np.sqrt(self.original_signal)
             
-    def __get_light_curve_from_web(self,detector_mask: str, apply_redshift: bool,scale = 'utc'):
+    def __get_light_curve_from_web(self,detector_mask: str, apply_redshift: bool, save_photons: bool,scale = 'utc'):
         '''
         Binds the light curve from individual photons in lumined detectors
         Args:
@@ -318,32 +384,35 @@ class GBM_LightCurve(LightCurve):
         binning = None
         times_array = []
         signal_array = []
-        
         lumin_detectors = [GBM_DETECTOR_CODES[i] for i,value in enumerate(list(detector_mask)) if value == '1']
         for detector in lumin_detectors:
+            logging.info(f'Getting light curve for {detector=}')
             hdul = self.load_fits(detector)
             ebounds = {line[0]:np.sqrt(line[1]*line[2]) for line in hdul[1].data}
             tzero = float(hdul[2].header['TZERO1'])
             data_df = pd.DataFrame(hdul[2].data)
             data_df['TIME'] = data_df['TIME'] - tzero
-            data_df['PHA'] = data_df['PHA'].replace(ebounds)
+            data_df['PHA'] = data_df['PHA'].apply(lambda x:ebounds[x])
             data = data_df.values
             del data_df
             if apply_redshift:
                 data = self.apply_redshift(data,self.redshift)
             data = self.filter_energy(data)
             times = data[:,0]
-            signal = data[:,1]
 
-            bined_times,_,bined_signal,_,binning = self.__rebin_data(times,signal,0,self.original_resolution,binning)
+            if scale == 'ijd':
+                trigger_time_ijd = get_ijd_from_Fermi_seconds(tzero)
+                times = times/(24*60*60) + trigger_time_ijd
+
+            if save_photons:
+                self.photon_data[detector] = {'times':times,'signal':data[:,1]}
+            logging.info(f'Started binning for {detector=}')
+
+            bined_times,_,bined_signal,_,binning = self._rebin_data(times,np.full(times.shape[0],1),0,self.original_resolution,binning)
             times_array.append(bined_times)
             signal_array.append(bined_signal)
             
         times = np.mean(times_array,axis=0)[1:-2]
-        if scale == 'ijd':
-            trigger_time_ijd = get_ijd_from_Fermi_seconds(tzero)
-            temp_times = temp_times/(24*60*60) + trigger_time_ijd
-
         signal = np.sum(signal_array,axis=0)[1:-2]
             
         return times,signal
@@ -370,70 +439,20 @@ class GBM_LightCurve(LightCurve):
         raise ValueError(f'No data found for {self.code} detector {detector}')
             
     @staticmethod
-    def apply_redshift(times,energy,redshift):
+    def apply_redshift(data,redshift):
         # todo
-        energy = energy * (1 + redshift)
-        times = times / (1 + redshift)
-        return times,energy
-        
-    def get_hist(self):
-        # todo
-        pass
-        
-    def get_bkg(self):
-        # todo
-        pass
+        data[:,1] = data[:,1] * (1 + redshift)
+        data[:,0] = data[:,0] / (1 + redshift)
+        return data
 
 
 
 class IREM_LightCurve(LightCurve):
-    def __init__(self,center_time,duration,source='Nan'):
-        # todo
-        self.time=center_time
-        self.duration=duration
-        if source == 'Nan':
-            self.load_from_file()
-        else:
-            self.TC3=np.loadtxt(source+'irem_TC3_0040-2410_T1000.dat')
-#             self.S14=np.loadtxt(source+'SF20211028_S14_60.txt')
-#             self.S33=np.loadtxt(source+'SF20211028_S33_60.txt')
-#             self.C2=np.loadtxt(source+'SF20211028_C2_60.txt')
-#             self.C3=np.loadtxt(source+'SF20211028_C3_60.txt')
-#             self.C4=np.loadtxt(source+'SF20211028_C4_60.txt')
-
-    def substract_bkg(self,IREM_array,*interval):
-        # todo
-        bkg=IREM_array[np.logical_and(interval[0]<IREM_array[:,0],IREM_array[:,0]<interval[1])]
-        bkg=np.mean(bkg[:,2])
-        IREM_array[:,2] = IREM_array[:,2] - bkg
-        IREM_array[:,3] = np.sqrt(bkg)
-        return IREM_array
-
-    def load_from_file(self):
-        # todo
-#         TC2=np.loadtxt('../Wavelet/IREM/lc_IREM_TC2_T1000.dat')
-#         self.TC2=self.extract(TC2)
-        TC3=np.loadtxt('E:\ACS\irem_TC3_0040-2410_T1000(1).dat')
-        self.TC3=self.extract(TC3)
-#         S14=np.loadtxt('../Wavelet/IREM/lc_IREM_S14_T1000.dat')
-#         self.S14=self.extract(S14)
-#         S33=np.loadtxt('../Wavelet/IREM/lc_IREM_S33_T1000.dat')
-#         self.S33=self.extract(S33)
-#         C3=np.loadtxt('../Wavelet/IREM/lc_IREM_C3_T1000.dat')
-#         self.C3=self.extract(C3)
-#         C4=np.loadtxt('../Wavelet/IREM/lc_IREM_C4_T1000.dat')
-#         self.C4=self.extract(C4)
-
-    def extract(self,IREM_array):
-        # todo
-        """
-        From 20 year interval get 12 ks of data
-        """
-        dt=self.time[0:10]+' '+self.time[11:]
-        t=get_ijd_from_utc(dt)
-        IREM_array[:,0]=IREM_array[:,0] - t
-        IREM_array[:,0:2]=IREM_array[:,0:2]*24*60*60
-        IREM_array=IREM_array[np.logical_and(-self.duration<IREM_array[:,0],IREM_array[:,0]<self.duration)]
-        return IREM_array
+    '''
+    Class for light curves from IREM/INTEGRAL
+    '''
+    def __init__(self,center_time,duration, loading_method: str='local', scale: str='utc', *args, **kwargs):
+        #todo
+        pass
 
 

@@ -2,6 +2,14 @@ import requests
 from bs4 import BeautifulSoup
 
 def parse_datetime_from_response_text(text, time_tag):
+    '''
+    Parse datetime from response text from heasarc
+    Args:
+        text: response text
+        time_tag: time tag in response text, 'ijd' = 'time_out_ii', 'utc' = 'time_out_i'
+    Returns:
+        str: datetime in requested format
+    '''
     ob = BeautifulSoup(text,'lxml')
     category = ob.find_all("td", {"id" : time_tag})
     return ' '.join(category[0].string.split())
