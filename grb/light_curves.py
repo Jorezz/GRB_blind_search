@@ -8,7 +8,6 @@ from astropy.io import fits
 import matplotlib.pyplot as plt
 from .time import get_ijd_from_utc, get_utc_from_ijd
 import pickle
-from functools import lru_cache
 
 
 class LightCurve():
@@ -136,7 +135,7 @@ class LightCurve():
             return self
 
     @classmethod
-    def load(cls,filename: str) -> 'LightCurve':
+    def load(cls,filename: str):
 
         '''
         Load light curve from file without extension
@@ -185,27 +184,21 @@ class SPI_ACS_LightCurve(LightCurve):
         self.signal = self.original_signal
         self.signal_err = np.sqrt(self.original_signal)
 
-    @property
-    def acs_scw_df(self):
-        if self.__acs_scw_df is None:
-            acs_scw_df= []
-            with open(f'{ACS_DATA_PATH}swg_infoc.dat','r') as f:
-                for line in f:
-                    acs_scw_df.append(line.split())
-
-            acs_scw_df = pd.DataFrame(acs_scw_df,columns=['scw_id','obt_start','obt_finish','ijd_start','ijd_finish','scw_duration','x','y','z','ra','dec'])
-            acs_scw_df['scw_id'] = acs_scw_df['scw_id'].astype(str)
-            acs_scw_df['ijd_start'] = acs_scw_df['ijd_start'].astype(float)
-            acs_scw_df['ijd_finish'] = acs_scw_df['ijd_finish'].astype(float)
-            self.__acs_scw_df = acs_scw_df
-
-        return self.__acs_scw_df
-
     def __get_light_curve_from_file(self,scale = 'utc'):
+        acs_scw_df= []
+        with open(f'{ACS_DATA_PATH}swg_infoc.dat','r') as f:
+            for line in f:
+                acs_scw_df.append(line.split())
+
+        acs_scw_df = pd.DataFrame(acs_scw_df,columns=['scw_id','obt_start','obt_finish','ijd_start','ijd_finish','scw_duration','x','y','z','ra','dec'])
+        acs_scw_df['scw_id'] = acs_scw_df['scw_id'].astype(str)
+        acs_scw_df['ijd_start'] = acs_scw_df['ijd_start'].astype(float)
+        acs_scw_df['ijd_finish'] = acs_scw_df['ijd_finish'].astype(float)
+
         center_time = datetime.datetime.strptime(self.event_time,'%Y-%m-%d %H:%M:%S')
         left_time = float(get_ijd_from_utc((center_time - datetime.timedelta(seconds=self.duration)).strftime('%Y-%m-%d %H:%M:%S')))
         right_time = float(get_ijd_from_utc((center_time + datetime.timedelta(seconds=self.duration)).strftime('%Y-%m-%d %H:%M:%S')))
-        scw_needed = self.acs_scw_df[((self.acs_scw_df['ijd_start']>left_time)&(self.acs_scw_df['ijd_start']<right_time))|((self.acs_scw_df['ijd_finish']>left_time)&(self.acs_scw_df['ijd_finish']<right_time))|((self.acs_scw_df['ijd_start']<left_time)&(self.acs_scw_df['ijd_finish']>left_time))|((self.acs_scw_df['ijd_start']<right_time)&(self.acs_scw_df['ijd_finish']>right_time))]
+        scw_needed = acs_scw_df[((acs_scw_df['ijd_start']>left_time)&(acs_scw_df['ijd_start']<right_time))|((acs_scw_df['ijd_finish']>left_time)&(acs_scw_df['ijd_finish']<right_time))|((acs_scw_df['ijd_start']<left_time)&(acs_scw_df['ijd_finish']>left_time))|((acs_scw_df['ijd_start']<right_time)&(acs_scw_df['ijd_finish']>right_time))]
         if scw_needed.shape[0]==0:
             raise ValueError(f'No data found for {self.event_time}')
 
