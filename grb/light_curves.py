@@ -6,7 +6,7 @@ import numpy as np
 from .config import ACS_DATA_PATH, LIGHT_CURVE_SAVE, GBM_DETECTOR_CODES
 from astropy.io import fits
 import matplotlib.pyplot as plt
-from .time import get_ijd_from_utc, get_utc_from_ijd
+from .time import get_ijd_from_utc, get_ijd_from_Fermi_seconds
 import pickle
 
 
@@ -85,6 +85,8 @@ class LightCurve():
         Rebin light curve from original time resolution
         Args:
             bin_duration (float): new bin duration in seconds, if None, return to original resolution
+        Returns:
+            self
         '''
         if bin_duration is None:
             self.times = self.original_times
@@ -133,6 +135,17 @@ class LightCurve():
             self.signal_err = temp_signal_err
 
             return self
+        
+    def substract_polynom(self,polynom_params):
+        '''
+        Substract polynom from light curve
+        Args:
+            polynom_params (np.array): parameters for polynom to be subtracted, from np.polyfit
+        Returns:
+            self
+        '''
+        self.signal -= np.polyval(polynom_params,self.times)
+        return self
 
     @classmethod
     def load(cls,filename: str):
@@ -153,7 +166,7 @@ class LightCurve():
         filename = filename if filename else f'{self.event_time[0:10]}_{self.event_time[11:13]}_{self.event_time[14:16]}_{self.event_time[17:19]}__{self.duration}__{self.original_resolution}'
         with open(f'{LIGHT_CURVE_SAVE}{filename}.pkl','wb') as f:
             pickle.dump(self,f)
-    
+
 
 
 class SPI_ACS_LightCurve(LightCurve):
@@ -260,12 +273,16 @@ class SPI_ACS_LightCurve(LightCurve):
 
 
 class GBM_LightCurve(LightCurve):
+    '''
+    Class for light curves from GBM/Fermi
+    '''
     def __init__(self,code: str, 
                  detector_mask: str,
                  redshift: float = None, 
                  original_resolution: float = None,
                  loading_method: str='web', 
                  scale = 'utc',
+                 apply_redshift: bool = True,
                  *args,**kwargs):
         '''
         Args:
@@ -280,7 +297,7 @@ class GBM_LightCurve(LightCurve):
         self.redshift = redshift if redshift else 0
 
         if loading_method == 'web':
-            self.original_times,self.original_signal = self.__get_light_curve_from_web(detector_mask,scale = scale)
+            self.original_times,self.original_signal = self.__get_light_curve_from_web(detector_mask, apply_redshift,scale = scale)
         else:
             NotImplementedError(f'Loading method {loading_method} not implemented')
 
@@ -290,8 +307,14 @@ class GBM_LightCurve(LightCurve):
         self.signal = self.original_signal
         self.signal_err = np.sqrt(self.original_signal)
             
-    def __get_light_curve_from_web(self,detector_mask: str,scale = 'utc'):
-        # todo
+    def __get_light_curve_from_web(self,detector_mask: str, apply_redshift: bool,scale = 'utc'):
+        '''
+        Binds the light curve from individual photons in lumined detectors
+        Args:
+            detector_mask (str): GBM detector mask, which detectors are the most luminous
+            apply_redshift (bool, optional): Whether to apply the redshift to the light curve
+            scale (str, optional): Scale of the light curve, can be 'utc' or 'ijd'
+        '''
         binning = None
         times_array = []
         signal_array = []
@@ -306,20 +329,24 @@ class GBM_LightCurve(LightCurve):
             data_df['PHA'] = data_df['PHA'].replace(ebounds)
             data = data_df.values
             del data_df
-            times = self.apply_redshift(data,self.redshift)[:,0]
-            signal = self.apply_redshift(data,self.redshift)[:,1]
+            if apply_redshift:
+                data = self.apply_redshift(data,self.redshift)
+            data = self.filter_energy(data)
+            times = data[:,0]
+            signal = data[:,1]
 
-            if binning is None:
-                _,_,_,_,binning = self.__rebin_data(self.filter_energy(data,detector=detector),self.binning,mas)
-            else:
-                self.__rebin_data(self.filter_energy(data,detector=detector),self.binning,mas)
+            bined_times,_,bined_signal,_,binning = self.__rebin_data(times,signal,0,self.original_resolution,binning)
+            times_array.append(bined_times)
+            signal_array.append(bined_signal)
             
-            
+        times = np.mean(times_array,axis=0)[1:-2]
+        if scale == 'ijd':
+            trigger_time_ijd = get_ijd_from_Fermi_seconds(tzero)
+            temp_times = temp_times/(24*60*60) + trigger_time_ijd
 
-        times = np.mean([np.array(dat[detector][gr][0]) for detector in lumin_detectors],axis=0)[1:-2]
-        signal = np.sum([np.array(dat[detector][gr][2]) for detector in lumin_detectors],axis=0)[1:-2]
+        signal = np.sum(signal_array,axis=0)[1:-2]
             
-        return 
+        return times,signal
              
     @staticmethod
     def filter_energy(data,low_en=6,high_en=850,detector='n0'):

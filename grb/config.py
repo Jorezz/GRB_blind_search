@@ -1,6 +1,6 @@
 import logging
 
-ROOT_PATH = 'C:/Python projects/GRB_data_processing/'
+ROOT_PATH = 'C:/Python projects/pygrb/'
 IMAGE_PATH = f'{ROOT_PATH}pics/'
 LIGHT_CURVE_SAVE = f'{ROOT_PATH}light_curves/'
 ACS_DATA_PATH = 'E:/ACS/'
