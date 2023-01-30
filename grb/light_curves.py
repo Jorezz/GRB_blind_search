@@ -248,12 +248,12 @@ class SPI_ACS_LightCurve(LightCurve):
             else:
                 raise NotImplementedError(f'Loading method {loading_method} not supported')
 
-        self.times = self.original_times
-        self.original_resolution = round(np.mean(self.times[1:] - self.times[:-1]),3) # determine size of time window
-        self.times_err = np.full(self.original_times.shape[0], self.original_resolution)
-        self.signal = self.original_signal
-        self.signal_err = np.sqrt(self.original_signal)
-        self.resolution = self.original_resolution
+            self.times = self.original_times
+            self.original_resolution = round(np.mean(self.times[1:] - self.times[:-1]),3) # determine size of time window
+            self.times_err = np.full(self.original_times.shape[0], self.original_resolution)
+            self.signal = self.original_signal
+            self.signal_err = np.sqrt(self.original_signal)
+            self.resolution = self.original_resolution
         
 
     def __get_light_curve_from_file(self,scale = 'utc'):
