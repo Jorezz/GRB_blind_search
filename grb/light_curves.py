@@ -300,7 +300,7 @@ class SPI_ACS_LightCurve(LightCurve):
     def __get_light_curve_from_web(self,scale = 'utc'):
         # Download data from isdc
         url = f'https://www.isdc.unige.ch/~savchenk/spiacs-online/spiacs.pl?requeststring={self.event_time[0:10]}T{self.event_time[11:13]}%3A{self.event_time[14:16]}%3A{self.event_time[17:19]}+{self.duration}&generate=ipnlc&submit=Submit'
-        data = np.asarray([[float(x.split()[0]),int(x.split()[1])] for x in requests.get(url).text.split('<br>\n')[2:-2]])
+        data = np.asarray([[float(x.split()[0]),int(float(x.split()[1]))] for x in requests.get(url).text.split('<br>\n')[2:-2]])
 
         times=data[:,0]
         signal=data[:,1]
