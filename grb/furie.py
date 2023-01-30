@@ -14,7 +14,7 @@ def make_pds(signal, time_step):
         time_step (float): time step
     '''
     freqs = np.fft.fftfreq(signal.shape[0], time_step)
-    ps = 2*np.abs(np.fft.fft(signal))**(2)/np.sum(signal)
+    ps = 2*np.abs(np.fft.fft(signal))**(2)/np.sum(np.abs(signal))
     mask = (freqs>0)
     
     return freqs[mask], ps[mask]
