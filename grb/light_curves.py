@@ -139,10 +139,10 @@ class LightCurve():
                         temp_signal.append(self.signal[i])
                         temp_signal_err.append(self.signal_err[i])
 
-            self.times= temp_time
-            self.times_err = temp_time_err
-            self.signal = temp_signal
-            self.signal_err = temp_signal_err
+            self.times= np.asarray(temp_time)
+            self.times_err = np.asarray(temp_time_err)
+            self.signal = np.asarray(temp_signal)
+            self.signal_err = np.asarray(temp_signal_err)
 
             return self
         
