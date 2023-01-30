@@ -103,7 +103,7 @@ class LightCurve():
 
             return self
 
-        if not reset:
+        if reset:
             bined_times, bined_times_err, bined_signal, bined_signal_err, _ = self._rebin_data(self.original_times, self.original_signal, self.original_resolution, bin_duration)
         else:
             bined_times, bined_times_err, bined_signal, bined_signal_err, _ = self._rebin_data(self.times, self.signal, self.resolution, bin_duration)
