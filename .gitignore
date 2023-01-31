@@ -1,5 +1,4 @@
 logs/*
 light_curves/*
 grb/__pycache__/
-*.csv
-*.xlsx
+data/*

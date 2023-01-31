@@ -3,7 +3,7 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import datetime
 import numpy as np
-from .config import ACS_DATA_PATH, LIGHT_CURVE_SAVE, GBM_DETECTOR_CODES, logging
+from .config import ACS_DATA_PATH, LIGHT_CURVE_SAVE, GBM_DETECTOR_CODES
 from astropy.io import fits
 import matplotlib.pyplot as plt
 from .time import get_ijd_from_utc, get_ijd_from_Fermi_seconds
@@ -36,28 +36,29 @@ class LightCurve():
             self.original_times,self.original_signal = None, None
             self.original_resolution = None
 
-    def __repr__(self) -> str:
+    def __repr__(self):
         return f'{self.__class__.__name__}(event_time={self.event_time}, duration={self.duration}, original resolution={self.original_resolution})'
 
-    def __eq__(self, other: object) -> bool:
+    def __eq__(self, other: object):
         return isinstance(other, LightCurve) and self.__class__ == other.__class__ and self.event_time == other.event_time and self.duration == other.duration and self.original_resolution == other.original_resolution
 
-    def plot(self,kind='plot',logx=None,logy=None):
+    def plot(self,kind: str = 'plot',logx: bool = None,logy: bool = None, **kwargs):
         '''
         Plot the light curve
         Args:
             kind (str, optional): plotting method
             logx (bool, optional): log x axis
             logy (bool, optional): log y axis
+            kwargs (dict, optional): keyword arguments for plotting used by matplotlib.pyplot.plot
         '''
         if kind == 'plot':
-            plt.plot(self.times, self.signal)
+            plt.plot(self.times, self.signal, **kwargs)
         elif kind == 'errorbar':
-            plt.errorbar(self.times, self.signal, xerr=self.times_err, yerr=self.signal_err, fmt = 'o')
+            plt.errorbar(self.times, self.signal, xerr=self.times_err, yerr=self.signal_err, fmt = 'o', **kwargs)
         elif kind == 'scatter':
-            plt.scatter(self.times, self.signal)
+            plt.scatter(self.times, self.signal, **kwargs)
         elif kind == 'step':
-            plt.step(self.times, self.signal)
+            plt.step(self.times, self.signal, **kwargs)
         else:
             raise NotImplementedError(f'Plotting method {kind} not supported')
 
@@ -146,7 +147,7 @@ class LightCurve():
 
             return self
         
-    def substract_polynom(self,polynom_params):
+    def substract_polynom(self,polynom_params: np.array):
         '''
         Substract polynom from light curve
         Args:
@@ -230,7 +231,7 @@ class SPI_ACS_LightCurve(LightCurve):
     '''
     Class for light curves from SPI-ACS/INTEGRAL
     '''
-    def __init__(self,event_time: str,duration: int, loading_method: str='local',scale: str='utc',*args,**kwargs):
+    def __init__(self,event_time: str,duration: int, loading_method: str='local',scale: str='utc',**kwargs):
         '''
         Args:
             event_time (str): date and time of event
@@ -238,7 +239,7 @@ class SPI_ACS_LightCurve(LightCurve):
             loading_method (str, optional): 'local' or 'web'
             scale (str, optional): 'utc' or 'ijd'
         '''
-        super().__init__(event_time,duration,*args,**kwargs)
+        super().__init__(event_time,duration,**kwargs)
 
         if self.original_times == None:
             if loading_method == 'local':
@@ -257,6 +258,11 @@ class SPI_ACS_LightCurve(LightCurve):
         
 
     def __get_light_curve_from_file(self,scale = 'utc'):
+        '''
+        Load a light curve from raw scw files
+        Args:
+            scale (str, optional): scale of light curve, 'utc' (seconds from trigger) or 'ijd' (days from J2000)
+        '''
         acs_scw_df= []
         with open(f'{ACS_DATA_PATH}swg_infoc.dat','r') as f:
             for line in f:
@@ -298,7 +304,11 @@ class SPI_ACS_LightCurve(LightCurve):
         return current_data[:,0],current_data[:,1]
 
     def __get_light_curve_from_web(self,scale = 'utc'):
-        # Download data from isdc
+        '''
+        Download light curve from isdc (unavailable in Russia)
+        Args:
+            scale (str, optional): scale of light curve, 'utc' (seconds from trigger) or 'ijd' (days from J2000)
+        '''
         url = f'https://www.isdc.unige.ch/~savchenk/spiacs-online/spiacs.pl?requeststring={self.event_time[0:10]}T{self.event_time[11:13]}%3A{self.event_time[14:16]}%3A{self.event_time[17:19]}+{self.duration}&generate=ipnlc&submit=Submit'
         data = np.asarray([[float(x.split()[0]),int(float(x.split()[1]))] for x in requests.get(url).text.split('<br>\n')[2:-2]])
 
@@ -342,8 +352,9 @@ class GBM_LightCurve(LightCurve):
                  loading_method: str='web', 
                  scale = 'utc',
                  apply_redshift: bool = True,
+                 filter_energy: bool = True,
                  save_photons: bool = False,
-                 *args,**kwargs):
+                 **kwargs):
         '''
         Args:
             code (str): GBM code, starting with 'bn', for example 'bn220101215'
@@ -353,9 +364,10 @@ class GBM_LightCurve(LightCurve):
             loading_method (str, optional): Method of obtaining the light curve, can be 'web' or 'local'
             scale (str, optional): Scale of the light curve, can be 'utc' or 'ijd', default to 'utc'
             apply_redshift (bool, optional): Apply redshift to the light curve, default to True
+            filter_energy (bool, optional): Apply energy filter to the light curve, default to True
             save_photons (bool, optional): Save the photons data from detectors, carefull, it can take a lot of memory, default to False
         '''
-        super().__init__(code,*args,**kwargs)
+        super().__init__(code,**kwargs)
         self.code = code
         self.redshift = redshift if redshift else 0
         self.photon_data = {}
@@ -364,7 +376,7 @@ class GBM_LightCurve(LightCurve):
 
         if self.original_times is None:
             if loading_method == 'web':
-                self.original_times,self.original_signal = self.__get_light_curve_from_web(detector_mask, apply_redshift, save_photons, scale = scale)
+                self.original_times,self.original_signal = self.__get_light_curve_from_web(detector_mask, apply_redshift, filter_energy, save_photons, scale = scale)
             else:
                 NotImplementedError(f'Loading method {loading_method} not implemented')
 
@@ -373,20 +385,20 @@ class GBM_LightCurve(LightCurve):
             self.signal = self.original_signal
             self.signal_err = np.sqrt(self.original_signal)
             
-    def __get_light_curve_from_web(self,detector_mask: str, apply_redshift: bool, save_photons: bool,scale = 'utc'):
+    def __get_light_curve_from_web(self,detector_mask: str, apply_redshift: bool, filter_energy: bool, save_photons: bool,scale = 'utc'):
         '''
         Binds the light curve from individual photons in lumined detectors
         Args:
             detector_mask (str): GBM detector mask, which detectors are the most luminous
             apply_redshift (bool, optional): Whether to apply the redshift to the light curve
-            scale (str, optional): Scale of the light curve, can be 'utc' or 'ijd'
+            filter_energy (bool, optional): Whether to filter the light curve by energy
+            scale (str, optional): scale of light curve, 'utc' (seconds from trigger) or 'ijd' (days from J2000)
         '''
         binning = None
         times_array = []
         signal_array = []
         lumin_detectors = [GBM_DETECTOR_CODES[i] for i,value in enumerate(list(detector_mask)) if value == '1']
         for detector in lumin_detectors:
-            logging.info(f'Getting light curve for {detector=}')
             hdul = self.load_fits(detector)
             ebounds = {line[0]:np.sqrt(line[1]*line[2]) for line in hdul[1].data}
             tzero = float(hdul[2].header['TZERO1'])
@@ -397,18 +409,21 @@ class GBM_LightCurve(LightCurve):
             del data_df
             if apply_redshift:
                 data = self.apply_redshift(data,self.redshift)
-            data = self.filter_energy(data)
-            times = data[:,0]
+            if filter_energy:
+                data = self.filter_energy(data)
 
             if scale == 'ijd':
                 trigger_time_ijd = get_ijd_from_Fermi_seconds(tzero)
-                times = times/(24*60*60) + trigger_time_ijd
+                data[:,0] = data[:,0]/(24*60*60) + trigger_time_ijd
 
+            self.photon_data = None
             if save_photons:
-                self.photon_data[detector] = {'times':times,'signal':data[:,1]}
-            logging.info(f'Started binning for {detector=}')
+                if self.photon_data is None:
+                    self.photon_data = data
+                else:
+                    self.photon_data = np.concatenate((self.photon_data,data))
 
-            bined_times,_,bined_signal,_,binning = self._rebin_data(times,np.full(times.shape[0],1),0,self.original_resolution,binning)
+            bined_times,_,bined_signal,_,binning = self._rebin_data(data[:,0],np.full(data.shape[0],1),0,self.original_resolution,binning)
             times_array.append(bined_times)
             signal_array.append(bined_signal)
             
@@ -418,8 +433,15 @@ class GBM_LightCurve(LightCurve):
         return times,signal
              
     @staticmethod
-    def filter_energy(data,low_en=6,high_en=850,detector='n0'):
-        # todo
+    def filter_energy(data: np.ndarray,low_en: float = 6,high_en: float = 850,detector: str = 'n0'):
+        '''
+        Filter the energy of the light curve
+        Args:
+            data (np.ndarray): time of photons and threir energy
+            low_en (float, optional): Low energy threshold
+            high_en (float, optional): High energy threshold
+            detector (str, optional): GBM detector code
+        '''
         if detector[0] == 'b':
             low_en = low_en if low_en else 200
             high_en = high_en if high_en else 6500
@@ -430,7 +452,13 @@ class GBM_LightCurve(LightCurve):
         return data[(data[:,1]>low_en)&(data[:,1]<high_en)]
     
     def load_fits(self,detector: str):
-        # todo
+        '''
+        Loads fits file from heasarc server
+        Args:
+            detector (str): GBM detector code
+        Returns:
+            astropy.io.fits
+        '''
         for i in range(5):
             try:
                 return fits.open(f'https://heasarc.gsfc.nasa.gov/FTP/fermi/data/gbm/bursts/20{self.code[2]}{self.code[3]}/{self.code}/current/glg_tte_{detector}_{self.code}_v0{i}.fit')
@@ -439,8 +467,13 @@ class GBM_LightCurve(LightCurve):
         raise ValueError(f'No data found for {self.code} detector {detector}')
             
     @staticmethod
-    def apply_redshift(data,redshift):
-        # todo
+    def apply_redshift(data,redshift: float):
+        '''
+        Apply redshift to data
+        Args:
+            data (np.ndarray): time of photons and their energy
+            redshift (float): Cosmological redshift
+        '''
         data[:,1] = data[:,1] * (1 + redshift)
         data[:,0] = data[:,0] / (1 + redshift)
         return data
