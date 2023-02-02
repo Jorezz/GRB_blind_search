@@ -1,4 +1,6 @@
-# GRB data processing
-I present package and notebooks with examples for GRB processing. Some of this data uses local files on my machine that originate from INTEGRAL data server in RSI RAS. Neverheless, this data is free to use via web script (https://www.isdc.unige.ch/~savchenk/spiacs-online/).
+# pygrb
+A package that provides interfaces for GRB (Gamma-ray bursts) light curves from different observatories, furie transforms, time changes and various procedures for light curve processing.
+
+Here you can find notebooks with drafts or finished pieces of code, that was used in my publications.
 
 For any questions you can contact me by email: georgiy99@bk.ru
