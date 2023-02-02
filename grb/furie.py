@@ -1,6 +1,4 @@
-import pickle
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 from .light_curves import LightCurve
 from scipy.stats import chi2
@@ -43,7 +41,7 @@ class FurieLightCurve():
                          (interval_t90[1],self.light_curve.times[-1]+self.light_curve.resolution)]
 
         mean_bkg = np.mean(self.light_curve.rebin().set_intervals(*bkg_intervals).signal)
-
+    
         rebined_param = np.polyfit(self.light_curve.rebin(bkg_substraction_resolution).set_intervals(*bkg_intervals).times,self.light_curve.rebin(bkg_substraction_resolution).set_intervals(*bkg_intervals).signal,bkg_polynom_degree)
         rebined_param = rebined_param * (self.light_curve.original_resolution/self.light_curve.resolution)
 

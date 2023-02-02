@@ -1,5 +1,4 @@
 import requests
-from bs4 import BeautifulSoup
 import pandas as pd
 import datetime
 import numpy as np
@@ -195,6 +194,7 @@ class LightCurve():
             self.times_err = np.full(self.original_times.shape[0], self.original_resolution)
             self.signal = self.original_signal
             self.signal_err = np.sqrt(self.original_signal)
+            self.resolution = self.original_resolution
         elif data.shape[1] == 4:
             self.original_times = data[:,0]
             self.original_signal = data[:,2]
@@ -204,6 +204,7 @@ class LightCurve():
             self.times_err = data[:,1]
             self.signal = self.original_signal
             self.signal_err = data[:,3]
+            self.resolution = self.original_resolution
 
     @classmethod
     def load(cls,filename: str):
@@ -241,7 +242,7 @@ class SPI_ACS_LightCurve(LightCurve):
         '''
         super().__init__(event_time,duration,**kwargs)
 
-        if self.original_times == None:
+        if self.original_times is None:
             if loading_method == 'local':
                 self.original_times,self.original_signal = self.__get_light_curve_from_file(scale = scale)
             elif loading_method =='web':
@@ -451,6 +452,7 @@ class GBM_LightCurve(LightCurve):
             
         return data[(data[:,1]>low_en)&(data[:,1]<high_en)]
     
+    @staticmethod
     def load_fits(self,detector: str):
         '''
         Loads fits file from heasarc server
@@ -488,4 +490,6 @@ class IREM_LightCurve(LightCurve):
         #todo
         pass
 
-
+def exclude_time_interval(times, signal, interval: tuple):
+    mask = (times < interval[0]) | (times > interval[1])
+    return times[mask], signal[mask]
