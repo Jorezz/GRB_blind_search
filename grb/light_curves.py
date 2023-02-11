@@ -2,7 +2,7 @@ import requests
 import pandas as pd
 import datetime
 import numpy as np
-from .config import ACS_DATA_PATH, LIGHT_CURVE_SAVE, GBM_DETECTOR_CODES
+from .config import ACS_DATA_PATH, LIGHT_CURVE_SAVE, GBM_DETECTOR_CODES, logging
 from astropy.io import fits
 import matplotlib.pyplot as plt
 from .time import get_ijd_from_utc, get_ijd_from_Fermi_seconds
@@ -353,7 +353,7 @@ class GBM_LightCurve(LightCurve):
                  loading_method: str='web', 
                  scale = 'utc',
                  apply_redshift: bool = True,
-                 filter_energy: bool = True,
+                 filter_energy: dict = None,
                  save_photons: bool = False,
                  **kwargs):
         '''
@@ -365,7 +365,7 @@ class GBM_LightCurve(LightCurve):
             loading_method (str, optional): Method of obtaining the light curve, can be 'web' or 'local'
             scale (str, optional): Scale of the light curve, can be 'utc' or 'ijd', default to 'utc'
             apply_redshift (bool, optional): Apply redshift to the light curve, default to True
-            filter_energy (bool, optional): Apply energy filter to the light curve, default to True
+            filter_energy (dict, optional): Apply energy filter to the light curve, dict with low and high energy shoud be provided, otherwise None
             save_photons (bool, optional): Save the photons data from detectors, carefull, it can take a lot of memory, default to False
         '''
         super().__init__(code,**kwargs)
@@ -399,7 +399,9 @@ class GBM_LightCurve(LightCurve):
         times_array = []
         signal_array = []
         lumin_detectors = [GBM_DETECTOR_CODES[i] for i,value in enumerate(list(detector_mask)) if value == '1']
+        logging.info(f'Found {len(lumin_detectors)} luminous detectors')
         for detector in lumin_detectors:
+            logging.info(f'Getting data for detector {detector}')
             hdul = self.load_fits(detector)
             ebounds = {line[0]:np.sqrt(line[1]*line[2]) for line in hdul[1].data}
             tzero = float(hdul[2].header['TZERO1'])
@@ -410,8 +412,8 @@ class GBM_LightCurve(LightCurve):
             del data_df
             if apply_redshift:
                 data = self.apply_redshift(data,self.redshift)
-            if filter_energy:
-                data = self.filter_energy(data)
+            if filter_energy is not None:
+                data = self.filter_energy(data,**filter_energy)
 
             if scale == 'ijd':
                 trigger_time_ijd = get_ijd_from_Fermi_seconds(tzero)
@@ -452,8 +454,7 @@ class GBM_LightCurve(LightCurve):
             
         return data[(data[:,1]>low_en)&(data[:,1]<high_en)]
     
-    @staticmethod
-    def load_fits(self,detector: str):
+    def load_fits(self, detector: str):
         '''
         Loads fits file from heasarc server
         Args:
@@ -490,6 +491,31 @@ class IREM_LightCurve(LightCurve):
         #todo
         pass
 
-def exclude_time_interval(times, signal, interval: tuple):
-    mask = (times < interval[0]) | (times > interval[1])
+
+
+def exclude_time_interval(times, signal, intervals):
+    logging.info(f'{intervals=}')
+    if type(intervals[0]) == tuple:
+        mask = None
+        for interval in intervals:
+            if mask is None:
+                mask = (times < interval[0]) | (times > interval[1])
+            else:
+                mask = mask & ((times < interval[0]) | (times > interval[1]))
+    else:
+        mask = (times < intervals[0]) | (times > intervals[1])
+
+    return times[mask], signal[mask]
+
+def limit_to_time_interval(times, signal, intervals):
+    if type(intervals[0]) == tuple:
+        mask = None
+        for interval in intervals:
+            if mask is None:
+                mask = (times >= interval[0]) & (times <= interval[1])
+            else:
+                mask = mask | ((times >= interval[0]) & (times <= interval[1]))
+    else:
+        mask = (times >= intervals[0]) & (times <= intervals[1])
+
     return times[mask], signal[mask]

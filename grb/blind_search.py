@@ -4,8 +4,9 @@ from tqdm import tqdm
 from .time import get_utc_from_ijd
 from .utils import Chi2_polyval
 import matplotlib.pyplot as plt
+from .light_curves import exclude_time_interval, LightCurve
 
-def filter_missing_data_and_flares(data):
+def filter_missing_data_and_flares(times, signal):
     '''
     Load gaps in ligth curve and exclude from data
     '''
@@ -19,9 +20,9 @@ def filter_missing_data_and_flares(data):
 
     # iterate through data and mark gaps with zeros
     for gap in breaks:
-        data[(data[:,0]>=gap[0])&(data[:,0]<=gap[1]),2] = 0
+        signal[(times>=gap[0])&(times<=gap[1])] = 0
     
-    return data[data[:,2]!=0]
+    return times[signal!=0], signal[signal!=0]
 
 def process_time_window(sub_time,sub_counts,center_bin,threshold, plot = False):
     '''
@@ -34,9 +35,9 @@ def process_time_window(sub_time,sub_counts,center_bin,threshold, plot = False):
     overpuasson = np.var(bkg_counts)/np.mean(bkg_counts)
     sigma = np.sqrt(np.var(bkg_counts))
     if (event_flux/sigma) > threshold:
-        utc_time = get_utc_from_ijd(sub_time[center_bin])
+        event_time = sub_time[center_bin]
         chi_2 = Chi2_polyval(bkg_time,bkg_counts,np.sqrt(bkg_counts*overpuasson),param)
-        logging.info(f'{utc_time=}, sigma = {round(event_flux/sigma,1)}, chi2 bkg = {round(chi_2,1)}')
+        logging.info(f'{event_time=}, sigma = {round(event_flux/sigma,1)}, chi2 bkg = {round(chi_2,1)}')
         if plot:
             fig=plt.figure()
             plt.errorbar(bkg_time,bkg_counts,yerr=np.sqrt(bkg_counts*overpuasson),fmt='o',label='background')
@@ -44,9 +45,70 @@ def process_time_window(sub_time,sub_counts,center_bin,threshold, plot = False):
             plt.plot(sub_time,np.polyval(param,sub_time),label=f'chi2 bkg={round(chi_2,1)}')
             plt.legend()
             plt.show()
-        return (utc_time,round(event_flux/sigma,1),round(chi_2,1))
+        return (event_time,round(event_flux/sigma,1),round(chi_2,1))
     else:
         return (None,None,None)
 
-def recursive_process_event():
-    pass
+def find_event(times, times_err, signal, signal_err, 
+               excelude_times: tuple = None, 
+               event_times: tuple = None, 
+               bkg_polynom_degree: int = 3):
+    logging.info(f'Finding event for {excelude_times=} {event_times=}')
+    if excelude_times is None:
+        param = np.polyfit(times, signal, bkg_polynom_degree)
+    else:
+        param = np.polyfit(*exclude_time_interval(times, signal, excelude_times), bkg_polynom_degree)
+
+    significances=((signal - np.polyval(param,times)) / signal_err)
+    logging.debug(f'{significances=}')
+    logging.debug(f'{times=}')
+    logging.debug(f'{significances[(times >= times[0]/2)&(times <= times[-1]/2)]}')
+    if event_times is None:
+        peak = np.argmax(significances == np.max(significances[(times >= times[0]/2)&(times <= times[-1]/2)]))
+    else:
+        peak = np.argmax((significances == np.max(significances))&(times >= event_times[0])&(times <= event_times[1]))
+        
+    left_idx = right_idx = peak
+    logging.info(f'{peak=}')
+    if significances[peak] < 1:
+        return event_times[0], event_times[1]
+
+    while significances[left_idx - 1] > 1:
+        left_idx -= 1
+        if left_idx == 0:
+            break
+    try:
+        while significances[right_idx + 1] > 1:
+            right_idx += 1
+    except IndexError:
+        pass
+
+    logging.info(f'Found smth {times[left_idx] - times_err[left_idx]} {times[right_idx] + times_err[right_idx]}')
+    return times[left_idx] - times_err[left_idx], times[right_idx] + times_err[right_idx]
+
+def recursive_event_search(lc: LightCurve,
+                           current_resolution: float,
+                           event_times: tuple = None,
+                           bkg_polynom_degree: int = 3,
+                           stoping_resolution: float = 2,
+                           stoping_size: int = 10):
+    logging.info(f'Stranted search in {lc=} in {current_resolution=}, previous results = {event_times=}')
+    lc.rebin(current_resolution)
+    times, times_err, signal, signal_err = lc.times, lc.times_err, lc.signal, lc.signal_err
+
+    # Run 3 times to ensure good background substration
+    if event_times is None:
+        times_left, times_right = find_event(times, times_err, signal, signal_err)
+    else:
+        times_left, times_right = find_event(times, times_err, signal, signal_err,event_times)
+    times_left, times_right = find_event(times, times_err, signal, signal_err, (times_left, times_right))
+    times_left, times_right = find_event(times, times_err, signal, signal_err, (times_left, times_right))
+
+    logging.info(f'Found smth {times_left=} {times_right=}')
+    new_resolution = current_resolution / 2
+    if new_resolution < lc.original_resolution:
+        return times_left, times_right
+    if np.sum((times > times_left)&(times < times_right)) > stoping_size or new_resolution < stoping_resolution:
+        return times_left, times_right
+    else:
+        return recursive_event_search(lc,new_resolution,(times_left, times_right),bkg_polynom_degree,stoping_resolution,stoping_size)
