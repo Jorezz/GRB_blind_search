@@ -168,9 +168,9 @@ class LightCurve():
         median_flux = np.median(self.signal)
 
         if peak_threshold < 0:
-            indexes_to_remove = (self.signal - median_flux)/self.signal_err < peak_threshold
+            indexes_to_remove = (self.signal - median_flux)/np.nan_to_num(self.signal_err,nan=1) < peak_threshold
         else:
-            indexes_to_remove = (self.signal - median_flux)/self.signal_err >= peak_threshold
+            indexes_to_remove = (self.signal - median_flux)/np.nan_to_num(self.signal_err,nan=1) >= peak_threshold
 
         self.signal = np.delete(self.signal, indexes_to_remove)
         self.signal_err = np.delete(self.signal_err, indexes_to_remove)
@@ -494,7 +494,6 @@ class IREM_LightCurve(LightCurve):
 
 
 def exclude_time_interval(times, signal, intervals):
-    logging.info(f'{intervals=}')
     if type(intervals[0]) == tuple:
         mask = None
         for interval in intervals:
