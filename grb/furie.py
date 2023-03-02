@@ -4,15 +4,20 @@ from .light_curves import LightCurve
 from scipy.stats import chi2
 
 
-def make_pds(signal, time_step):
+def make_pds(signal, time_step, pad_size):
     '''
     Get Power Density Spectrum from signal
     Args:
         signal (np.array): input signal
         time_step (float): time step
+        pad_size (int): number of bins to pad, None
     '''
+    mean = np.mean(signal)
+    if pad_size is not None:
+        signal = np.pad(signal,(pad_size - signal.shape[0],0), 'constant')
+        
     freqs = np.fft.fftfreq(signal.shape[0], time_step)
-    ps = 2*np.abs(np.fft.fft(signal - np.mean(signal)))**(2)/np.sum(signal)
+    ps = 2*np.abs(np.fft.fft(signal - mean))**(2)/np.sum(signal)
     mask = (freqs>0)
     
     return freqs[mask], ps[mask]
@@ -74,10 +79,8 @@ class FurieLightCurve():
         rebined_param = rebined_param * (self.light_curve.original_resolution/self.light_curve.resolution)
 
         signal = self.light_curve.rebin().substract_polynom(rebined_param).set_intervals(interval_t90).signal
-        if pad_size:
-            signal = np.pad(signal,(pad_size - signal.shape[0],0), 'constant')
         
-        self.freqs, self.ps =  make_pds(signal+mean_bkg,self.light_curve.original_resolution)
+        self.freqs, self.ps =  make_pds(signal+mean_bkg,self.light_curve.original_resolution, pad_size)
         self.freqs_err, self.ps_err = np.full(self.freqs.shape[0], 0), np.sqrt(self.ps)
 
     def plot(self, kind: str = 'scatter', logx: bool = True, logy: bool = True, N_bins: int = 30, **kwargs):

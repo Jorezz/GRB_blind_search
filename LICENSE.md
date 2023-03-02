@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2023 Gish57
+Copyright (c) 2023 Jorezz
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

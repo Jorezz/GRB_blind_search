@@ -168,9 +168,9 @@ class LightCurve():
         median_flux = np.median(self.signal)
 
         if peak_threshold < 0:
-            indexes_to_remove = (self.signal - median_flux)/np.nan_to_num(self.signal_err,nan=1) < peak_threshold
+            indexes_to_remove = (self.signal - median_flux)/np.where(np.nan_to_num(self.signal_err,nan=1)==0,1,np.nan_to_num(self.signal_err,nan=1)) < peak_threshold
         else:
-            indexes_to_remove = (self.signal - median_flux)/np.nan_to_num(self.signal_err,nan=1) >= peak_threshold
+            indexes_to_remove = (self.signal - median_flux)/np.where(np.nan_to_num(self.signal_err,nan=1)==0,1,np.nan_to_num(self.signal_err,nan=1)) >= peak_threshold
 
         self.signal = np.delete(self.signal, indexes_to_remove)
         self.signal_err = np.delete(self.signal_err, indexes_to_remove)
@@ -411,7 +411,7 @@ class GBM_LightCurve(LightCurve):
             data = data_df.values
             del data_df
             if apply_redshift:
-                data = self.apply_redshift(data,self.redshift)
+                data[:,0], data[:,1] = self.apply_redshift(data[:,0], data[:,1],self.redshift)
             if filter_energy is not None:
                 data = self.filter_energy(data,**filter_energy)
 
@@ -434,7 +434,22 @@ class GBM_LightCurve(LightCurve):
         signal = np.sum(signal_array,axis=0)[1:-2]
             
         return times,signal
-             
+    
+    def load_fits(self, detector: str):
+        '''
+        Loads fits file from heasarc server
+        Args:
+            detector (str): GBM detector code
+        Returns:
+            astropy.io.fits
+        '''
+        for i in range(5):
+            try:
+                return fits.open(f'https://heasarc.gsfc.nasa.gov/FTP/fermi/data/gbm/bursts/20{self.code[2]}{self.code[3]}/{self.code}/current/glg_tte_{detector}_{self.code}_v0{i}.fit')
+            except requests.exceptions.HTTPError:
+                pass
+        raise ValueError(f'No data found for {self.code} detector {detector}') 
+        
     @staticmethod
     def filter_energy(data: np.ndarray,low_en: float = 6,high_en: float = 850,detector: str = 'n0'):
         '''
@@ -453,33 +468,18 @@ class GBM_LightCurve(LightCurve):
             high_en = high_en if high_en else 850
             
         return data[(data[:,1]>low_en)&(data[:,1]<high_en)]
-    
-    def load_fits(self, detector: str):
-        '''
-        Loads fits file from heasarc server
-        Args:
-            detector (str): GBM detector code
-        Returns:
-            astropy.io.fits
-        '''
-        for i in range(5):
-            try:
-                return fits.open(f'https://heasarc.gsfc.nasa.gov/FTP/fermi/data/gbm/bursts/20{self.code[2]}{self.code[3]}/{self.code}/current/glg_tte_{detector}_{self.code}_v0{i}.fit')
-            except requests.exceptions.HTTPError:
-                pass
-        raise ValueError(f'No data found for {self.code} detector {detector}')
             
     @staticmethod
-    def apply_redshift(data,redshift: float):
+    def apply_redshift(times, signal,redshift: float):
         '''
         Apply redshift to data
         Args:
-            data (np.ndarray): time of photons and their energy
+            times (np.array): time of photons and their energy
             redshift (float): Cosmological redshift
         '''
-        data[:,1] = data[:,1] * (1 + redshift)
-        data[:,0] = data[:,0] / (1 + redshift)
-        return data
+        signal = signal * (1 + redshift)
+        times = times / (1 + redshift)
+        return times, signal
 
 
 
