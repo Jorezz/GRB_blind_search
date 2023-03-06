@@ -451,7 +451,7 @@ class GBM_LightCurve(LightCurve):
         raise ValueError(f'No data found for {self.code} detector {detector}') 
         
     @staticmethod
-    def filter_energy(data: np.ndarray,low_en: float = 6,high_en: float = 850,detector: str = 'n0'):
+    def filter_energy(data: np.ndarray, low_en: float = 6, high_en: float = 850, detector: str = 'n0'):
         '''
         Filter the energy of the light curve
         Args:
@@ -470,7 +470,7 @@ class GBM_LightCurve(LightCurve):
         return data[(data[:,1]>low_en)&(data[:,1]<high_en)]
             
     @staticmethod
-    def apply_redshift(times, signal,redshift: float):
+    def apply_redshift(times: np.array, signal: np.array, redshift: float):
         '''
         Apply redshift to data
         Args:
@@ -493,7 +493,7 @@ class IREM_LightCurve(LightCurve):
 
 
 
-def exclude_time_interval(times, signal, intervals):
+def exclude_time_interval(times: np.array, signal: np.array, intervals):
     if type(intervals[0]) == tuple:
         mask = None
         for interval in intervals:
@@ -506,7 +506,7 @@ def exclude_time_interval(times, signal, intervals):
 
     return times[mask], signal[mask]
 
-def limit_to_time_interval(times, signal, intervals):
+def limit_to_time_interval(times: np.array, signal: np.array, intervals):
     if type(intervals[0]) == tuple:
         mask = None
         for interval in intervals:
