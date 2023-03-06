@@ -3,3 +3,4 @@ light_curves/*
 pics/*
 grb/__pycache__/
 data/*
+.vscode/*
